@@ -2,10 +2,10 @@ Package: eyeCleanR
 Title: Clean and Transform Eye-Tracking Data
 Version: 0.0.0.9000
 Authors@R: 
-    person(given = "First",
-           family = "Last",
+    person(given = "Alistair",
+           family = "Beith",
            role = c("aut", "cre"),
-           email = "first.last@example.com")
+           email = "alistair.beith@gmail.com")
 Description: This package can be used to clean raw eye-tracking data based on expected patterns. The current implementation focuses on sequential reading, where y coordinates are correlated with time and x coordinates follow a quasi-regular oscillatory pattern. 
 License: MIT + file LICENSE
 Encoding: UTF-8
