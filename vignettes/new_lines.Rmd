@@ -1,6 +1,5 @@
 ---
 title: "Detecting new lines"
-author: "2013823B"
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
 bibliography: refs.bib

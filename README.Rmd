@@ -22,7 +22,7 @@ This package can be used to clean raw eye-tracking data based on expected patter
 You can install this version of eyeCleanR using the following command:
 
 ``` {r, eval=FALSE}
-install.packages("path/to/download/folder/eyeCleanR_0.0.0.9000.tar.gz", repos = NULL, type = "source")
+devtools::install_github("abeith/eyeCleanR")
 ```
 
 You can then use `library(eyeCleanR)` to load the package.

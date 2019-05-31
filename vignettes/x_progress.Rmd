@@ -1,6 +1,5 @@
 ---
 title: "Analysis of Reading Progress Along x-axis"
-author: "2013823B"
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
 bibliography: refs.bib
