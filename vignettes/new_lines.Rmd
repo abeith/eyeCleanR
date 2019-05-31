@@ -1,0 +1,244 @@
+---
+title: "Detecting new lines"
+author: "2013823B"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+bibliography: refs.bib
+vignette: >
+  %\VignetteIndexEntry{Detecting new lines}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(eyeCleanR)
+```
+
+## Data
+
+The data provided with this package is from a cross-modal reading task. Participants read the text while listening to a corresponding transcript. Therefore, additional steps are likely to be required for the analysis of free reading tasks.
+
+## Calculate velocity
+
+The `get_velocity()` function produces similar results with both method 1 and method 2. However, adding a `smooth` value will calculate the rolling mean of velocity over the specified number of values. Missing values in the supplied x value will be ignored (`na.rm = TRUE`) and where there are insufficient preceding or following values to calculate a mean, missing values are replaced with the unsmoothed velocity.
+
+```{r}
+data("eye_data_clean")
+
+dat_clean <- eye_data_clean %>%
+  mutate(vx1 = get_velocity(x),
+         vx2 = get_velocity(x, method = 2),
+         vx_smooth = get_velocity(x, smooth = 55))
+
+dat_clean %>%
+  select(ms, vx1:vx_smooth) %>%
+  gather(method, vx, -ms) %>%
+  ggplot(aes(ms, vx)) +
+  geom_line() +
+  facet_grid(method ~ .)
+
+```
+
+## Estimate new line saccades (clean data)
+
+The time point at which the reader moves on to a new line is evident from the quasi-regular negative spikes in x velocity over time. If we know the number of lines of text read, near automatic estimation of new line saccades is possible. The `detect_newline()` function calls `findpeaks()` from the `pracma` package [@pracma]. By default, velocity values provided are multiplied by -1 as new line saccades for left-to-right readers are expected to be negative (left). The `peakheight` argument sets the proportion of the maximum velocity to use as a minimum peak height.
+
+The first step is to get the expected number of lines. This is used to set the minimum distance between peaks.
+
+```{r}
+data("word_aois")
+
+n_lines <- max(word_aois$row)
+```
+
+The `detect_newline()` function can then be used.
+
+```{r}
+newlines <- detect_newline(dat_clean$vx1, n_lines)
+```
+
+The function prints the values that are used to set minimum peak distance and height. It also prints the expected number of peaks and how many are detected. In this case one extra peak has been detected with the default values. This appear to be the saccade from the centre of the screen to the first word at the start of the trial.
+
+Alternatively, the smoothed velocity can be used.
+
+```{r}
+newlines_smooth <- detect_newline(dat_clean$vx_smooth, n_lines)
+```
+
+For this example, the smoothed velocity seems to perform better. However, if the first value of the unsmoothed result is removed, both results are similar.
+
+```{r}
+plot(sort(newlines)[2:22], sort(newlines_smooth), xlab = "newlines", ylab = "newlines_smooth")
+```
+
+## Checking categorisation
+
+The results from `detect_newline()` refer to the sample number, and can therefore be used to identify newlines in a dataframe by the row number.
+
+```{r}
+dat_clean <- dat_clean %>%
+  mutate(newline = if_else(row_number() %in% newlines, 1, 0),
+         line_num = cumsum(newline))
+```
+
+Plotting the path of x and y coordinates makes it possible to observe the path the reader took, despite the ambiguity of y coordinates alone.
+
+```{r}
+# make a high contrast colour palette
+palette <- rep(c('#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00'), 10)
+
+# function for plotting x and y path
+plot_path <- function(df){
+  ggplot(df, aes(x, y, colour = as.factor(line_num))) +
+    geom_path(alpha = 0.5) +
+    geom_point(alpha = 0.1) +
+    scale_y_reverse() +
+    scale_colour_manual(values = palette) +
+    coord_cartesian(xlim = c(0.9 * min(word_aois$x1), 1.1 * max(word_aois$x2)),
+                    ylim = c(0.9 * min(word_aois$y1), 1.1 * max(word_aois$y2))) +
+    theme(legend.position = "none",
+          panel.grid = element_blank())
+}
+
+# plot
+plot_path(dat_clean)
+```
+
+The separation achieved by `detect_newline()` is more clearly demonstrated in a two-dimensional density plot. By plotting the density of x by time, grouped by line number, the regular pattern of left-to-right reading is shown. 
+
+```{r}
+# plot density
+ggplot(dat_clean, aes(x, ms, colour = as.factor(line_num))) +
+  geom_density_2d() +
+  scale_y_reverse() +
+  scale_colour_manual(values = palette) +
+  theme(legend.position = "none",
+        panel.grid = element_blank())
+```
+
+## Estimate new line saccades (noisy data)
+
+The `detect_newline()` function will not work effectively with noisy data. In this example only one point is detected.
+
+```{r}
+data("eye_data_noisy")
+
+dat_noisy <- eye_data_noisy %>%
+  mutate(vx = get_velocity(x))
+
+newlines_noisy <- detect_newline(dat_noisy$vx, n_lines)
+```
+
+Points that fall outside the expected target area can be filtered out with the `filter_points()` function. This appears to improve the performance of the `detect_newline()` function, which now finds six points. However, notice that a more regular series of peaks appear to visible at a lower magnitude.
+
+```{r}
+limits <- with(word_aois, list(xmin = min(x1),
+                               xmax = max(x2),
+                               ymin = min(y1),
+                               ymax = max(y2)))
+
+dat_noisy <- dat_noisy %>%
+  filter_points(limits = limits) %>%
+  mutate(vx = get_velocity(x))
+
+newlines_noisy <- detect_newline(dat_noisy$vx, n_lines)
+```
+
+An additional method of detecting outliers is to look at the y coordinate over time. The plot below shows the predicted value of y from the linear model `y ~ ms` as a blue line, observed values as black points and a confidence interval set to capture the middle 95% of residuals.
+
+```{r}
+model <- lm(y ~ ms, data = dat_noisy)
+summary(model)
+
+low_lim <- quantile(residuals(model), 0.025)
+high_lim <- quantile(residuals(model), 0.975)
+
+dat_noisy <- dat_noisy %>%
+  mutate(y_pred = predict.lm(model, newdata = .))
+
+dat_noisy %>%
+  ggplot(aes(x = ms)) +
+  geom_point(aes(y = y), alpha = 0.1, size = 0.1) +
+  geom_ribbon(aes(ymin = y_pred + low_lim, ymax = y_pred + high_lim), alpha = 0.5, fill = "blue") +
+  geom_line(aes(y = y_pred), colour = "blue") +
+  scale_y_reverse()
+```
+
+Removing values outside of the confidence interval further improves the performance of `detect_newlines()`, now detecting 20 of an expected 21 saccades.
+
+```{r}
+dat_noisy <- dat_noisy %>%
+  mutate(exclude = y < y_pred + low_lim | y > y_pred + high_lim,
+         x = if_else(exclude, NaN, x),
+         y = if_else(exclude, NaN, y)) %>%
+  fill_missing(x, y) %>%
+  mutate(vx = get_velocity(x))
+
+newlines_noisy <- detect_newline(dat_noisy$vx, n_lines)
+
+dat_noisy2 <- eye_data_noisy %>%
+  mutate(newline = if_else(row_number() %in% newlines_noisy, 1, 0),
+         line_num = cumsum(newline))
+```
+
+Plotting the cleaned data shows less separation of lines than was achieved with the 'clean' data. However, many of the lines appear to be correctly categorised in the 2-dimensional density plot.
+
+```{r}
+plot_path(dat_noisy2)
+
+ggplot(dat_noisy2, aes(x, ms, colour = as.factor(line_num))) +
+  geom_density_2d() +
+  scale_y_reverse() +
+  scale_colour_manual(values = palette) +
+  theme(legend.position = "none",
+        panel.grid = element_blank())
+```
+
+Plotting the x coordinates over time suggests that manual identification of new lines would not necessarily be better than this method. There appear to be many large regressions and looks away from the target area.
+
+```{r}
+dat_noisy2 %>%
+  filter(line_num %in% 1:4) %>%
+  ggplot(aes(x = ms, y = x, colour = as.factor(line_num))) +
+  geom_line() +
+  coord_cartesian(ylim = c(0.9 * min(word_aois$x1), 1.1 * max(word_aois$x2))) +
+  theme(legend.position = "none",
+        panel.background = element_blank())
+```
+
+Similarly, plotting y coordinates over time show that the reader's point-of-gaze does not appear to be moving in the expected quasi-periodic pattern. However, the line groupings appear to capture new line saccades despite the variation within groups. The shaded areas in the plot below show the minimum and maximum heights of text corresponding to the line categories
+
+```{r}
+line_heights <- word_aois %>%
+  select(-x1, -x2) %>%
+  mutate(line_num = row - 1) %>%
+  distinct
+
+line_heights <- dat_noisy2 %>%
+  filter(line_num %in% 1:5) %>%
+  inner_join(line_heights, by = "line_num")
+
+dat_noisy2 %>%
+  filter(line_num %in% 1:5) %>%
+  ggplot() +
+  geom_ribbon(data = line_heights, 
+              aes(ymin = y1, ymax = y2, 
+                  x = ms, fill = as.factor(line_num)),
+              alpha = 0.5) +
+  geom_line(aes(x = ms, y = y, colour = as.factor(line_num))) +
+  scale_y_reverse() +
+  coord_cartesian(ylim = c(100, 300)) +
+  theme(legend.position = "none",
+        panel.background = element_blank())
+```
+
+
+# References

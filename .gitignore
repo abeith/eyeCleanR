@@ -1,0 +1,8 @@
+inst/doc
+.Rproj.user
+prep_data.R
+prep_data2.R
+prep_data3.R
+data-raw/
+.Rhistory
+.RData

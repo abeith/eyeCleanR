@@ -1,0 +1,32 @@
+Package: eyeCleanR
+Title: Clean and Transform Eye-Tracking Data
+Version: 0.0.0.9000
+Authors@R: 
+    person(given = "First",
+           family = "Last",
+           role = c("aut", "cre"),
+           email = "first.last@example.com")
+Description: This package can be used to clean raw eye-tracking data based on expected patterns. The current implementation focuses on sequential reading, where y coordinates are correlated with time and x coordinates follow a quasi-regular oscillatory pattern. 
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 6.1.1
+Imports: 
+    dplyr,
+    imputeTS,
+    magrittr,
+    zoo,
+    stats,
+    pracma,
+    ggplot2,
+    tidyr,
+    purrr,
+    broom
+Suggests: 
+    testthat,
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
+URL: https://github.com/abeith/eyeCleanR
+BugReports: https://github.com/abeith/eyeCleanR/issues

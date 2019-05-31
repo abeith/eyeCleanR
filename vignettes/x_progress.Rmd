@@ -1,0 +1,166 @@
+---
+title: "Analysis of Reading Progress Along x-axis"
+author: "2013823B"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+bibliography: refs.bib
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+library(eyeCleanR)
+```
+
+## Data
+
+The `eye_dat_vx` data groups `eye_data_clean` into line numbers using the procedure outlined in the [new_lines](new_lines.html) vignette.
+
+```{r}
+data("eye_dat_vx")
+```
+
+## X progress over time
+
+With data grouped by line number it is possible to see how a reader progresses along the x-axis. In the plot below, the coloured lines show the readers point-of-gaze on the x-axis for individual lines. The black line shows the fit of a linear model for the relationship between time and x position.
+
+```{r}
+# normalise time variable
+eye_norm_t <- eye_dat_vx %>%
+  filter(line_num > 0) %>%
+  group_by(line_num) %>%
+  mutate(t = ms - min(ms, na.rm = T),
+         t = t / max(t, na.rm = T)) %>%
+  ungroup
+
+ggplot(eye_norm_t, aes(t, x)) +
+  geom_line(aes(colour = as.factor(line_num), 
+                group = as.factor(line_num)), 
+            alpha = 0.25) +
+  geom_smooth(method = "lm", colour = "black", se = T) +
+  theme(panel.background = element_blank(),
+        legend.position = "none")
+```
+
+The statistical test of this relationship is also significant.
+
+```{r}
+model <- lm(x ~ t, data = eye_norm_t)
+summary(model)
+```
+
+It is also possible to see how reader speeds up and slows down over the duration of the line. The `cont_x()` function creates a vector of the same length as the input vector, with equally spaced values along a sequence from the minimum to maximum values of the input. This function allows the user to create a continuous variable to compare observed values against. In the plot below the shaded areas above the red centre line show where the reader is further ahead than the mean would suggest, and shaded areas below the line show where the reader is further behind than the mean would suggest. The 'sawtooth' pattern visible for the majority of the second line is what is expected of continuous progressive reading: Downward slopes show fixation, which are then followed by sharp upward slopes showing saccades. Near the centre of the first line a clear regression is visible: The downward slope is followed by a sharper downward slope as the observed x coordinate begins to lag behind the continuous comparator.
+
+```{r}
+
+cont_dat <- eye_norm_t %>%
+  filter(line_num %in% 4:6) %>%
+  group_by(line_num) %>%
+  mutate(x_cont = cont_x(x),
+         x_diff = x - x_cont)
+
+cont_dat %>%
+  ggplot(aes(x = t, y = x_diff)) +
+  geom_hline(yintercept = 0, colour = "red") +
+  geom_line() +
+  geom_ribbon(aes(ymin = x_diff), ymax = 0, alpha = 0.5) +
+  facet_grid(line_num ~ .) +
+  theme(panel.background = element_blank(),
+        legend.position = "none")
+```
+
+## Comparing readers
+
+It is also possible to look at the relationship between readers of the same text. In the example data tables readers are asked to read along with the same text while listening to a corresponding transcript. Therefore, we would expect that both readers will move on to a new line at a similar point in time and follow the text at a similar rate.
+
+To examine whether this is the case, the two data tables can be joined on `ms` (time). For this example, the sampling of `eye_dat_noisy` is 1ms out of phase with `eye_dat_clean` so this is corrected for by subtracting 1 from all values of `ms` in `eye_data_noisy`. The two tables can then be joined, retaining the normalised time (`t`) and line number (`line_num`) variables from the 'clean' example in `eye_norm_t`.
+
+```{r}
+data("eye_data_noisy")
+
+clean_dat <- eye_norm_t %>%
+  select(t, ms, line_num, clean = x)
+
+noisy_dat <- eye_data_noisy %>%
+  mutate(ms = ms - 1) %>%
+  select(ms, noisy = x)
+
+joined_dat <- inner_join(clean_dat, noisy_dat, by = "ms")
+
+head(joined_dat)
+```
+
+A visual inspection of this relationship shows some coherence between readers. However, the reader captured in the 'noisy' data appears to be reading ahead, but then frequently regressing back to earlier words.  
+
+```{r}
+
+xlims <- c(0.9 * min(word_aois$x1), 1.1 * max(word_aois$x2))
+
+joined_dat %>%
+  gather(source, x, clean:noisy) %>%
+  filter(line_num %in% 1:3) %>%
+  ggplot(aes(t, x, group = source, colour = source)) +
+  geom_line() +
+  coord_cartesian(ylim = xlims) +
+  facet_grid(line_num ~ .) +
+  theme(panel.background = element_blank(),
+        legend.position = "bottom")
+```
+
+A linear model can also be used to explore differences between trials. In the model below, variables are deviance codes to show main effects of time, trial and the time $\times$ trial interaction.
+
+```{r}
+
+model2_dat <- joined_dat %>%
+  gather(source, x, clean:noisy) %>%
+  mutate(t_dev = t - mean(t, na.rm = T),
+         x_dev = x - mean(x, na.rm = T),
+         source_dummy = recode(source, clean = 0, noisy = 1),
+         source_dev = source_dummy - mean(source_dummy))
+
+model2 <- lm(x_dev ~ t_dev * source_dev, data = model2_dat)
+
+summary(model2)
+```
+
+The model shows an interaction such that the reader recorded in the 'noisy' data appears to read ahead of the 'clean' reader earlier in the line, but begins to lag behind at the end of the line. The plot below shows this relationship with the solid lines indicating the model fits and the points showing the observed points. The cluster of points in the lower right hand corner of the plot suggests that the 'noisy' reader moves on to the next line earlier than the 'clean' reader.
+
+```{r}
+lowlim <- min(model2$fitted.values)
+highlim <- max(model2$fitted.values)
+
+model2_dat %>%
+  mutate(x_pred = predict.lm(model2, newdata = .)) %>%
+  ggplot(aes(x = t_dev, group = source, colour = source)) +
+  geom_point(aes(y = x_dev), size = 0.05, alpha = 0.01) +
+  geom_line(aes(y = x_pred)) +
+  coord_cartesian(ylim = c(lowlim, highlim)) +
+  theme(panel.background = element_blank(),
+        legend.position = "bottom")
+```
+
+This pattern is also evident from plotting the density of the difference between x values for the two readers. In this plot darker areas show more frequent values. As most of the darker areas are above the centre line, it appears that the 'noisy' reader generally reads ahead of the 'clean' reader, with the dark area in the lower right, again, suggesting that the 'noisy' reader also moves on to the next line earlier.
+
+```{r}
+joined_dat %>%
+  group_by(line_num) %>%
+  mutate(x_diff = noisy - clean) %>%
+  ungroup %>%
+  ggplot(aes(t, x_diff)) +
+  geom_hline(yintercept = 0, colour = "red") +
+  stat_density_2d(aes(alpha = stat(density)), geom = "raster", contour = F) +
+  theme(panel.background = element_blank(),
+        legend.position = "none")
+```
+
